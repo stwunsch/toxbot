@@ -1,4 +1,4 @@
-toxbot
+Toxbot
 ======
 
-Chat bot for tox
+This chatbot accepts friend requests and invites friends to a groupchat.
