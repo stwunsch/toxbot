@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <tox/tox.h>
 
 #define SLEEP_TIME_ISNOTCONNECTED 100000
@@ -9,11 +10,11 @@
 #define BOOTSTRAP_PORT 33445
 #define BOOTSTRAP_KEY "951C88B7E75C867418ACDB5D273821372BB5BD652740BCDF623A4FA293E75D2F"
 
-#define MY_NAME "Toxbot"
-#define STATUS_MSG "Write me something!"
+#define MY_NAME "Toxy"
+#define STATUS_MSG "Write me some lovely words!"
 #define SAVEFILE "savetox.bin"
-#define RETURN_MSG "Check, I have invited you!"
-#define GROUPCHAT_NUMBER 0
+
+#define RETURN_MSG "Nice to meet you!"
 
 char
 *hex_string_to_bin(const char *hex_string)
@@ -129,8 +130,49 @@ on_request(Tox *m, const uint8_t *public_key, const uint8_t *data, uint16_t leng
 void
 on_message(Tox *m, int32_t friendnumber, const uint8_t *string, uint16_t length, void *userdata){
 	printf("[%i] %s\n",friendnumber,string);
-	tox_invite_friend(m,friendnumber,GROUPCHAT_NUMBER);
+	//tox_invite_friend(m,friendnumber,GROUPCHAT_NUMBER);
 	tox_send_message(m,friendnumber,RETURN_MSG,strlen(RETURN_MSG));
+}
+
+void
+on_come_online(Tox *m, int32_t friendnumber, uint8_t status, void *userdata){
+	const char *msg;
+	srand(time(NULL));
+	
+	int states = 8;
+	int num = rand()%states;
+	
+	switch(num){
+		case 0: msg = "I like you!";
+		break;
+		
+		case 1: msg = "You are looking great!";
+		break;
+		
+		case 2: msg = "You are absolutely awesome!";
+		break;
+		
+		case 3: msg = "You are great!";
+		break;
+		
+		case 4: msg = "You made my day!";
+		break;
+		
+		case 5: msg = "Nice to meet you again!";
+		break;
+		
+		case 6: msg = "You are awesome!";
+		break;
+		
+		case 7: msg = "I hope you have a nice day!";
+		break;
+		
+		default: msg = "Default";
+	}
+	
+	if(status){
+		tox_send_message(m,friendnumber,msg,strlen(msg));
+	}
 }
 
 static
@@ -148,8 +190,9 @@ Tox *init_tox(void)
     // Register callback
     tox_callback_friend_request(m, on_request, NULL);
     tox_callback_friend_message(m, on_message, NULL);
+    tox_callback_connection_status(m, on_come_online, NULL);
     
-    // Set name
+    // Set name and status
     tox_set_name(m, (uint8_t *) MY_NAME, strlen(MY_NAME));
     tox_set_status_message(m,STATUS_MSG,strlen(STATUS_MSG));
     
@@ -167,9 +210,13 @@ main(int argc, const char *argv[]){
     
     // Setup mytox
     Tox *m = init_tox();
+    
     int load_status;
     load_status = load_data(m);
     if(load_status == -1) return 1;
+    
+    tox_set_name(m, (uint8_t *) MY_NAME, strlen(MY_NAME));
+    tox_set_status_message(m,STATUS_MSG,strlen(STATUS_MSG));
     
     // Init connection
     int bootstrap;
@@ -196,20 +243,6 @@ main(int argc, const char *argv[]){
 			printf("Connected to DHT.\n");
 			
 			get_myid(m); // get my id
-			
-			int groupchat_num;
-			groupchat_num = tox_add_groupchat(m);
-			if(groupchat_num == -1){
-				printf("Creating groupchat failed.\n");
-				return 1;
-			}
-			if(groupchat_num == 0){
-				printf("Setup groupchat.\n");
-			}
-			else{
-				printf("Setup groupchat with undefined number.\n");
-				return 1;
-			}
 			
 			usleep(SLEEP_TIME_MAINLOOP);
 		}
