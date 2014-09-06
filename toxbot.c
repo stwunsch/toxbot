@@ -17,6 +17,9 @@
 #define RETURN_MSG_INVITE "Check, I have invited you!"
 #define RETURN_MSG_NOTINVITE "Dude, dunno what you want..."
 #define GROUPCHAT_NUMBER 0
+#define SAVEFILE_MSG "savemsg.txt"
+
+#define MSG_LOG "log"
 
 /* CONVERT HEX TO BINARY */
 
@@ -144,14 +147,36 @@ on_request(Tox *m, const uint8_t *public_key, const uint8_t *data, uint16_t leng
 /* CALLBACK: ON MESSAGE */
 
 void
+send_log(Tox *m, int32_t friendnumber){
+	FILE *fd;
+	fd = fopen(SAVEFILE_MSG, "r");
+	
+	fseek(fd, 0, SEEK_END);
+	int len = ftell(fd);
+	fseek(fd, 0, SEEK_SET);
+
+	char *buf = malloc(len);
+	fread(buf, len, 1, fd);
+	
+	tox_send_message(m,friendnumber,buf,len);
+	
+	free(buf);
+}
+
+void
 on_message(Tox *m, int32_t friendnumber, const uint8_t *string, uint16_t length, void *userdata){
 	printf("Msg [%i]: %s\n",friendnumber,string);
-	uint8_t *msg;
-	msg = MSG_INVITE;
-	if(!memcmp(msg,string,length*sizeof(uint8_t))){
+	uint8_t *msg_invite, *msg_log;
+	msg_invite = MSG_INVITE;
+	msg_log = MSG_LOG;
+	if(!memcmp(msg_invite,string,length*sizeof(uint8_t))){
+		send_log(m, friendnumber);
 		tox_invite_friend(m,friendnumber,GROUPCHAT_NUMBER);
 		tox_send_message(m,friendnumber,RETURN_MSG_INVITE,strlen(RETURN_MSG_INVITE));
 		printf("Invited [%i] to groupchat.\n",friendnumber);
+	}
+	else if(!memcmp(msg_log,string,length*sizeof(uint8_t))){
+		send_log(m, friendnumber);
 	}
 	else{
 		tox_send_message(m,friendnumber,RETURN_MSG_NOTINVITE,strlen(RETURN_MSG_NOTINVITE));
@@ -171,10 +196,44 @@ on_connection_status(Tox *m, int32_t friendnumber, uint8_t status, void *userdat
 	}
 }
 
+/* CALLBACK: ON GROUP MESSAGE */
+
+void
+store_group_message(Tox *m, uint8_t *name, uint16_t name_len, const uint8_t *msg, uint16_t msg_len){
+	int len = name_len+msg_len+2;
+	uint8_t *buf = malloc(len*sizeof(uint8_t));
+	
+	memcpy(buf,name,name_len*sizeof(uint8_t)); // copy name
+	memset(buf+name_len,' ',sizeof(uint8_t)); // set whitespace
+	memcpy(buf+name_len+1,msg,msg_len*sizeof(uint8_t)); // copy msg
+	memset(buf+name_len+1+msg_len,'\n',sizeof(uint8_t)); // set newline
+	
+	FILE *fd = fopen(SAVEFILE_MSG, "a");
+    fwrite(buf, len, 1, fd);
+    free(buf);
+    fclose(fd);
+}
+
+void
+on_group_message(Tox *m, int groupnum, int peernum, const uint8_t *msg, uint16_t msg_len, void* userdata){	
+	uint8_t buf_name[TOX_MAX_NAME_LENGTH];
+	uint8_t *name;
+	uint16_t name_len;
+	name_len = tox_group_peername(m, groupnum, peernum, buf_name);
+	if(name_len!=-1){
+		name = malloc(name_len*sizeof(uint8_t));
+		memcpy(name,buf_name,name_len*sizeof(uint8_t));
+		printf("Group msg [%s]: %s\n", name, msg);
+		// Store msg
+		store_group_message(m, name, name_len, msg, msg_len);
+	}
+	else printf("Cant resolve peername!\n");
+}
+
 /* INIT TOX */
 
-static
-Tox *init_tox(void)
+static Tox*
+init_tox(void)
 {
 	// Set tox option
 	Tox_Options tox_opts;
@@ -189,6 +248,7 @@ Tox *init_tox(void)
     tox_callback_friend_request(m, on_request, NULL);
     tox_callback_friend_message(m, on_message, NULL);
     tox_callback_connection_status(m, on_connection_status, NULL);
+    tox_callback_group_message(m, on_group_message, NULL);
     
     // Return tox object
     return m;
