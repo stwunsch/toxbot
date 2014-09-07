@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <tox/tox.h>
 
 #define SLEEP_TIME_ISNOTCONNECTED 100000
@@ -46,20 +47,6 @@ char
     return val;
 }
 
-/* GET MY ID */
-
-void
-get_myid(Tox *m)
-{
-    char id[TOX_FRIEND_ADDRESS_SIZE * 2 + 1] = {0};
-    const char address[TOX_FRIEND_ADDRESS_SIZE];
-    
-    tox_get_address(m, (uint8_t *) address);
-    id_from_data(address, id);
-    
-    printf("My ID: %s\n",id);
-}
-
 /* CONVERT DATA TO HEX ID */
 
 void
@@ -72,6 +59,20 @@ id_from_data(const uint8_t *address, uint8_t *id)
         snprintf(xx, sizeof(xx), "%02X", address[i] & 0xff);
         strcat(id, xx);
     }
+}
+
+/* GET MY ID */
+
+void
+get_myid(Tox *m)
+{
+    char id[TOX_FRIEND_ADDRESS_SIZE * 2 + 1] = {0};
+    const char address[TOX_FRIEND_ADDRESS_SIZE];
+    
+    tox_get_address(m, (uint8_t *) address);
+    id_from_data(address, id);
+    
+    printf("My ID: %s\n",id);
 }
 
 /* STORE TOX DATA */
@@ -154,26 +155,43 @@ on_request(Tox *m, const uint8_t *public_key, const uint8_t *data, uint16_t leng
 
 void
 send_log(Tox *m, int32_t friendnumber, int32_t lines){
-	FILE *fd;
-	fd = fopen(SAVEFILE_MSG, "r");
-	
-	fseek(fd, 0, SEEK_END);
-	int len = ftell(fd);
-	fseek(fd, 0, SEEK_SET);
-	
-	// Check if enough data is available for lines msg parts, else pointer remains on first char
-	if(len-lines*MSG_LOG_DEFAULT_LINE_LENGTH>=0){
-		fseek(fd, len-lines*MSG_LOG_DEFAULT_LINE_LENGTH, SEEK_SET);
-		len = lines*MSG_LOG_DEFAULT_LINE_LENGTH;
-	}
+	printf("Send log to [%i] with %i lines.\n",friendnumber,lines);
+	FILE *fd = fopen(SAVEFILE_MSG, "r");
+	if(fd!=NULL){; // jump out if there is no file
+		fseek(fd, 0, SEEK_END);
+		int len = ftell(fd);
+		fseek(fd, 0, SEEK_SET);
+		
+		// Check if enough data is available for lines msg parts, else pointer remains on first char
+		if(len-lines*MSG_LOG_DEFAULT_LINE_LENGTH>=0){
+			fseek(fd, len-lines*MSG_LOG_DEFAULT_LINE_LENGTH, SEEK_SET);
+			len = lines*MSG_LOG_DEFAULT_LINE_LENGTH;
+		}
 
-	char *buf = malloc(len);
-	fread(buf, len, 1, fd);
-	
-	// Send log to friend
-	tox_send_message(m,friendnumber,buf,len);
-	
-	free(buf);
+		char *buf = malloc(len);
+		fread(buf, len, 1, fd);
+		
+		// Send log to friend
+		if(len>TOX_MAX_MESSAGE_LENGTH){ // split msg if it is too long
+			char buf_split[TOX_MAX_MESSAGE_LENGTH];
+			int len_split, i;
+			// Send full packages
+			for(i=0;i<len/(int)TOX_MAX_MESSAGE_LENGTH;i++){
+				memcpy(buf_split,buf+i*TOX_MAX_MESSAGE_LENGTH,TOX_MAX_MESSAGE_LENGTH*sizeof(uint8_t));
+				len_split = TOX_MAX_MESSAGE_LENGTH;
+				tox_send_message(m,friendnumber,buf_split,len_split);
+			}
+			// Send last package
+			memcpy(buf_split,buf+(len/(int)TOX_MAX_MESSAGE_LENGTH)*TOX_MAX_MESSAGE_LENGTH,(len-(len/(int)TOX_MAX_MESSAGE_LENGTH)*TOX_MAX_MESSAGE_LENGTH)*sizeof(uint8_t));
+			len_split = len-(len/(int)TOX_MAX_MESSAGE_LENGTH)*TOX_MAX_MESSAGE_LENGTH;
+			if(len>0) tox_send_message(m,friendnumber,buf_split,len_split);
+		}
+		else{
+			tox_send_message(m,friendnumber,buf,len);
+		}
+		
+		free(buf);
+	}
 }
 
 void
@@ -233,15 +251,29 @@ on_connection_status(Tox *m, int32_t friendnumber, uint8_t status, void *userdat
 
 void
 store_group_message(Tox *m, uint8_t *name, uint16_t name_len, const uint8_t *msg, uint16_t msg_len){
-	int len = name_len+msg_len+1+2;
+	// Get time
+	time_t rawtime;
+	struct tm * timeinfo;
+	uint8_t buffer[100];
+	uint8_t time_string[100];
+	time (&rawtime);
+	timeinfo = localtime (&rawtime);
+	strftime(buffer,100,"%R %a %b %d",timeinfo);
+	int time_len = sprintf(time_string,"[%s]",buffer);
+	
+	// Set string
+	int len = name_len+1+time_len+1+msg_len+2;
 	uint8_t *buf = malloc(len*sizeof(uint8_t));
 	
 	memcpy(buf,name,name_len*sizeof(uint8_t)); // copy name
-	memset(buf+name_len,'\n',sizeof(uint8_t)); // set whitespace
-	memcpy(buf+name_len+1,msg,msg_len*sizeof(uint8_t)); // copy msg
-	memset(buf+name_len+1+msg_len,'\n',sizeof(uint8_t)); // set newline
-	memset(buf+name_len+2+msg_len,'\n',sizeof(uint8_t)); // set newline
+	memset(buf+name_len,' ',sizeof(uint8_t)); // set whitespace
+	memcpy(buf+name_len+1,time_string,time_len*sizeof(uint8_t)); // copy time
+	memset(buf+name_len+1+time_len,'\n',sizeof(uint8_t)); // set newline
+	memcpy(buf+name_len+1+time_len+1,msg,msg_len*sizeof(uint8_t)); // copy msg
+	memset(buf+name_len+1+time_len+1+msg_len,'\n',sizeof(uint8_t)); // set newline
+	memset(buf+name_len+1+time_len+1+msg_len+1,'\n',sizeof(uint8_t)); // set newline
 	
+	// Save string
 	FILE *fd = fopen(SAVEFILE_MSG, "a");
     fwrite(buf, len, 1, fd);
     free(buf);
