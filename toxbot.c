@@ -4,6 +4,8 @@
 #include <time.h>
 #include <tox/tox.h>
 
+/* SETUP */
+
 #define SLEEP_TIME_ISNOTCONNECTED 100000
 #define SLEEP_TIME_MAINLOOP 10000
 #define BOOTSTRAP_ADDRESS "192.254.75.98"
@@ -15,7 +17,7 @@
 #define SAVEFILE "savetox.bin"
 
 #define MSG_INVITE "invite"
-#define RETURN_MSG_INVITE "Check, I have invited you!"
+#define RETURN_MSG_INVITE "I have invited you to a groupchat!"
 #define RETURN_MSG_NOTINVITE "Dude, dunno what you want..."
 #define GROUPCHAT_NUMBER 0
 #define SAVEFILE_MSG "savemsg.txt"
