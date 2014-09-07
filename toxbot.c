@@ -242,10 +242,10 @@ on_message(Tox *m, int32_t friendnumber, const uint8_t *string, uint16_t length,
 void
 on_connection_status(Tox *m, int32_t friendnumber, uint8_t status, void *userdata){
 	if(status){
-		printf("Friend %i gone offline.\n",friendnumber);
+		printf("Friend %i comes online.\n",friendnumber);
 	}
 	else{
-		printf("Friend %i comes online.\n",friendnumber);
+		printf("Friend %i gone offline.\n",friendnumber);
 	}
 }
 
