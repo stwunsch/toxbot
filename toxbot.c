@@ -10,7 +10,7 @@
 #define BOOTSTRAP_KEY "951C88B7E75C867418ACDB5D273821372BB5BD652740BCDF623A4FA293E75D2F"
 
 #define MY_NAME "Toxbot"
-#define STATUS_MSG "You know what you have to do!"
+#define STATUS_MSG "Write 'help' if you dont know what to do!"
 #define SAVEFILE "savetox.bin"
 
 #define MSG_INVITE "invite"
@@ -20,6 +20,12 @@
 #define SAVEFILE_MSG "savemsg.txt"
 
 #define MSG_LOG "log"
+#define MSG_LOG_DEFAULT_LINES 2
+#define MSG_LOG_MAX_LINES 1000
+#define MSG_LOG_DEFAULT_LINE_LENGTH 256
+
+#define MSG_HELP "help"
+#define RETURN_MSG_HELP "Valid commands:\ninvite\tinvites to groupchat\nlog\tsends log\nlog n\tsends log with length n\nhelp\tgives help\n"
 
 /* CONVERT HEX TO BINARY */
 
@@ -120,7 +126,7 @@ load_data(Tox *m)
     }
 }
 
-/* CALLBACK: ON REQUEST */
+/* CALLBACK AND FUNCTIONS: ON REQUEST */
 
 void
 on_request(Tox *m, const uint8_t *public_key, const uint8_t *data, uint16_t length, void *userdata){
@@ -144,20 +150,27 @@ on_request(Tox *m, const uint8_t *public_key, const uint8_t *data, uint16_t leng
 	printf("Friend accepted, Friendnumber: %i\n",friendnumber);
 }
 
-/* CALLBACK: ON MESSAGE */
+/* CALLBACK AND FUNCTIONS: ON MESSAGE */
 
 void
-send_log(Tox *m, int32_t friendnumber){
+send_log(Tox *m, int32_t friendnumber, int32_t lines){
 	FILE *fd;
 	fd = fopen(SAVEFILE_MSG, "r");
 	
 	fseek(fd, 0, SEEK_END);
 	int len = ftell(fd);
 	fseek(fd, 0, SEEK_SET);
+	
+	// Check if enough data is available for lines msg parts, else pointer remains on first char
+	if(len-lines*MSG_LOG_DEFAULT_LINE_LENGTH>=0){
+		fseek(fd, len-lines*MSG_LOG_DEFAULT_LINE_LENGTH, SEEK_SET);
+		len = lines*MSG_LOG_DEFAULT_LINE_LENGTH;
+	}
 
 	char *buf = malloc(len);
 	fread(buf, len, 1, fd);
 	
+	// Send log to friend
 	tox_send_message(m,friendnumber,buf,len);
 	
 	free(buf);
@@ -166,25 +179,45 @@ send_log(Tox *m, int32_t friendnumber){
 void
 on_message(Tox *m, int32_t friendnumber, const uint8_t *string, uint16_t length, void *userdata){
 	printf("Msg [%i]: %s\n",friendnumber,string);
-	uint8_t *msg_invite, *msg_log;
+	uint8_t *msg_invite, *msg_log, *msg_help, *m_msg_log;
 	msg_invite = MSG_INVITE;
 	msg_log = MSG_LOG;
-	if(!memcmp(msg_invite,string,length*sizeof(uint8_t))){
-		send_log(m, friendnumber);
+	msg_help = MSG_HELP;
+	m_msg_log = malloc(strlen(MSG_LOG)*sizeof(uint8_t)); // copy only chars of MSG_LOG to string for checking of numbers behind MSG_LOG
+	memcpy(m_msg_log,string,strlen(MSG_LOG)*sizeof(uint8_t));
+	
+	// Take aktion based on string
+	if(!memcmp(msg_invite,string,length*sizeof(uint8_t))){ // if msg is MSG_INVITE
+		send_log(m, friendnumber,MSG_LOG_DEFAULT_LINES);
 		tox_invite_friend(m,friendnumber,GROUPCHAT_NUMBER);
 		tox_send_message(m,friendnumber,RETURN_MSG_INVITE,strlen(RETURN_MSG_INVITE));
 		printf("Invited [%i] to groupchat.\n",friendnumber);
 	}
-	else if(!memcmp(msg_log,string,length*sizeof(uint8_t))){
-		send_log(m, friendnumber);
+	else if(!memcmp(msg_log,m_msg_log,strlen(MSG_LOG)*sizeof(uint8_t))){ //if msg is MSG_LOG
+		int32_t lines;
+		if(length-strlen(MSG_LOG)>1){ // if string is long enough that there can be a number
+			uint8_t *lines_string = malloc(length-strlen(MSG_LOG)-1); // take care of whitespace!
+			memcpy(lines_string,string+strlen(MSG_LOG)+1,(length-strlen(MSG_LOG)-1)*sizeof(uint8_t));
+			lines = atoi(lines_string);
+			if(lines>MSG_LOG_MAX_LINES) lines = MSG_LOG_DEFAULT_LINES; // fallback
+		}
+		else{ // if string is only len(MSG_LOG) length long, set number to default
+			lines = MSG_LOG_DEFAULT_LINES;
+		}
+		send_log(m, friendnumber, lines); // send log with lines lines to friend
 	}
-	else{
+	else if(!memcmp(msg_help,string,length*sizeof(uint8_t))){
+		tox_send_message(m,friendnumber,RETURN_MSG_HELP,strlen(RETURN_MSG_HELP));
+	}
+	else{ // fallback
 		tox_send_message(m,friendnumber,RETURN_MSG_NOTINVITE,strlen(RETURN_MSG_NOTINVITE));
 		printf("Unknown command from [%i].\n",friendnumber);
 	}
+	
+	free(m_msg_log);
 }
 
-/* CALLBACK: ON CONNECTION STATUS CHANGE */
+/* CALLBACK AND FUNCTIONS: ON CONNECTION STATUS CHANGE */
 
 void
 on_connection_status(Tox *m, int32_t friendnumber, uint8_t status, void *userdata){
@@ -196,17 +229,18 @@ on_connection_status(Tox *m, int32_t friendnumber, uint8_t status, void *userdat
 	}
 }
 
-/* CALLBACK: ON GROUP MESSAGE */
+/* CALLBACK AND FUNCTIONS: ON GROUP MESSAGE */
 
 void
 store_group_message(Tox *m, uint8_t *name, uint16_t name_len, const uint8_t *msg, uint16_t msg_len){
-	int len = name_len+msg_len+2;
+	int len = name_len+msg_len+1+2;
 	uint8_t *buf = malloc(len*sizeof(uint8_t));
 	
 	memcpy(buf,name,name_len*sizeof(uint8_t)); // copy name
-	memset(buf+name_len,' ',sizeof(uint8_t)); // set whitespace
+	memset(buf+name_len,'\n',sizeof(uint8_t)); // set whitespace
 	memcpy(buf+name_len+1,msg,msg_len*sizeof(uint8_t)); // copy msg
 	memset(buf+name_len+1+msg_len,'\n',sizeof(uint8_t)); // set newline
+	memset(buf+name_len+2+msg_len,'\n',sizeof(uint8_t)); // set newline
 	
 	FILE *fd = fopen(SAVEFILE_MSG, "a");
     fwrite(buf, len, 1, fd);
